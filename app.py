@@ -10,9 +10,8 @@ try:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 except:
     client = None
-    st.warning("Let op: Stel je OPENAI_API_KEY in bij de Secrets!")
 
-st.set_page_config(layout="centered", page_title="CV Maker")
+st.set_page_config(layout="wide", page_title="CV Maker Pro")
 
 # 2. HELPER FUNCTIES
 def convert_image_to_base64(image_bytes):
@@ -34,175 +33,228 @@ def extract_text_from_pdf(pdf_file):
     return text
 
 # Sessie status initialiseren
-if 'work_experience' not in st.session_state:
-    st.session_state['work_experience'] = []
-if 'profile_text' not in st.session_state:
-    st.session_state['profile_text'] = ""
-if 'name' not in st.session_state:
-    st.session_state['name'] = ""
-if 'job_title' not in st.session_state:
-    st.session_state['job_title'] = ""
-if 'email' not in st.session_state:
-    st.session_state['email'] = ""
+keys = ['work_experience', 'profile_text', 'name', 'job_title', 'email', 'phone', 'linkedin', 'profile_pic_data']
+for key in keys:
+    if key not in st.session_state:
+        if key == 'work_experience':
+            st.session_state[key] = []
+        else:
+            st.session_state[key] = ""
 
-# 3. UI
-st.title('📝 Professionele CV Maker')
+def update_field(key):
+    st.session_state[key] = st.session_state[f"input_{key}"]
 
-tabs = st.tabs(["✏️ Editor", "📄 Voorbeeld CV"])
+# 3. UI - HEADER & KNOPPEN
+st.title('🎨 Professionele CV Builder')
 
-# --- TAB 1: EDITOR ---
-with tabs[0]:
+col_top_1, col_top_2 = st.columns([4, 1])
+with col_top_1:
+    st.info("Vul links je gegevens in, kies rechts je stijl en klik op 'Genereer'.")
+with col_top_2:
+    if st.button("🚀 Genereer CV", key="top_btn", type="primary"):
+        st.rerun()
+
+# We gebruiken kolommen voor de layout: Links Editor, Rechts Preview
+col_editor, col_preview = st.columns([1, 1])
+
+# --- KOLOM 1: EDITOR ---
+with col_editor:
+    st.header("✏️ Gegevens")
     
-    # === NIEUW: LINKEDIN IMPORT ===
-    with st.expander("🚀 Importeer van LinkedIn", expanded=True):
-        st.write("Ga naar je LinkedIn profiel > knop 'More' > 'Save to PDF' en upload die hier.")
-        uploaded_linkedin = st.file_uploader("Upload LinkedIn PDF", type="pdf")
-        
-        if uploaded_linkedin and st.button("Vul CV automatisch in"):
+    # === LINKEDIN IMPORT ===
+    with st.expander("Importeer van LinkedIn (PDF)", expanded=False):
+        uploaded_linkedin = st.file_uploader("Upload PDF", type="pdf")
+        if uploaded_linkedin and st.button("Vul automatisch in"):
             if not client:
-                st.error("Geen API key gevonden.")
+                st.error("Geen API Key.")
             else:
-                with st.spinner("LinkedIn data analyseren..."):
-                    raw_text = extract_text_from_pdf(uploaded_linkedin)
-                    
-                    # We vragen GPT om JSON terug te geven
-                    prompt = f"""
-                    Haal de volgende gegevens uit deze ruwe CV tekst:
-                    - Volledige naam
-                    - Huidige functietitel (of laatste)
-                    - Emailadres (indien aanwezig)
-                    - Korte samenvatting/profielschets
-                    - Een lijst van werkervaringen (Samenvatting per rol)
-
-                    Geef antwoord puur als JSON in dit formaat:
-                    {{
-                        "name": "...",
-                        "job_title": "...",
-                        "email": "...",
-                        "summary": "...",
-                        "experience": ["rol 1...", "rol 2..."]
-                    }}
-
-                    TEKST:
-                    {raw_text[:4000]} 
-                    """
-                    
+                with st.spinner("Analyseren..."):
                     try:
-                        response = client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[{"role": "user", "content": prompt}],
-                            response_format={"type": "json_object"}
+                        raw_text = extract_text_from_pdf(uploaded_linkedin)
+                        prompt = f"""Haal data uit tekst. JSON format: {{ "name": "", "job_title": "", "email": "", "summary": "", "experience": ["rol 1", "rol 2"] }} Tekst: {raw_text[:3000]}"""
+                        res = client.chat.completions.create(
+                            model="gpt-4o", messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
                         )
-                        
-                        data = json.loads(response.choices[0].message.content)
-                        
-                        # Sessie updaten
-                        st.session_state['name'] = data.get('name', '')
-                        st.session_state['job_title'] = data.get('job_title', '')
-                        st.session_state['email'] = data.get('email', '')
-                        st.session_state['profile_text'] = data.get('summary', '')
+                        data = json.loads(res.choices[0].message.content)
+                        st.session_state.update(data)
                         st.session_state['work_experience'] = data.get('experience', [])
-                        
-                        st.success("Gegevens ingeladen! Controleer de velden hieronder.")
+                        st.session_state['profile_text'] = data.get('summary', '')
                         st.rerun()
-                        
                     except Exception as e:
-                        st.error(f"Fout bij uitlezen: {e}")
+                        st.error(f"Fout: {e}")
 
-    # === DE STANDAARD VELDEN ===
-    with st.expander("Persoonlijk", expanded=True):
-        st.session_state['name'] = st.text_input("Naam", st.session_state['name'])
-        st.session_state['job_title'] = st.text_input("Functietitel", st.session_state['job_title'])
-        st.session_state['email'] = st.text_input("Email", st.session_state['email'])
-        phone = st.text_input("Telefoon")
-        linkedin = st.text_input("LinkedIn URL")
+    # === PERSOONLIJK ===
+    with st.expander("Persoonlijke Info", expanded=True):
+        st.text_input("Naam", value=st.session_state['name'], key="input_name", on_change=update_field, args=('name',))
+        st.text_input("Functie", value=st.session_state['job_title'], key="input_job_title", on_change=update_field, args=('job_title',))
+        st.text_input("Email", value=st.session_state['email'], key="input_email", on_change=update_field, args=('email',))
+        st.text_input("Telefoon", value=st.session_state['phone'], key="input_phone", on_change=update_field, args=('phone',))
+        st.text_input("LinkedIn/Web", value=st.session_state['linkedin'], key="input_linkedin", on_change=update_field, args=('linkedin',))
         
-        profile_pic = st.file_uploader("Upload je pasfoto", type=['jpg', 'png'])
-        profile_pic_base64 = ""
-        if profile_pic:
-            profile_pic_base64 = convert_image_to_base64(profile_pic.read())
+        uploaded_pic = st.file_uploader("Pasfoto", type=['jpg', 'png'])
+        if uploaded_pic:
+            st.session_state['profile_pic_data'] = convert_image_to_base64(uploaded_pic.read())
 
-    with st.expander("Profiel"):
-        st.session_state['profile_text'] = st.text_area("Introduceer jezelf", st.session_state['profile_text'], height=150)
+    # === PROFIEL ===
+    with st.expander("Profiel & AI", expanded=False):
+        current_profile = st.text_area("Profieltekst", value=st.session_state['profile_text'], height=150)
+        st.session_state['profile_text'] = current_profile 
         
-        if st.button("✨ Herschrijf profiel met AI"):
-            if client:
-                with st.spinner("AI is aan het schrijven..."):
+        if st.button("✨ Herschrijf met AI"):
+            if client and st.session_state['profile_text']:
+                with st.spinner("Schrijven..."):
                     resp = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Herschrijf professioneel: {st.session_state['profile_text']}"}]
+                        model="gpt-4o", messages=[{"role": "user", "content": f"Herschrijf professioneel voor CV: {st.session_state['profile_text']}"}]
                     )
                     st.session_state['profile_text'] = resp.choices[0].message.content
                     st.rerun()
 
-    with st.expander("Werkervaring"):
-        if st.button("+ Voeg werkervaring toe"):
+    # === ERVARING ===
+    with st.expander("Werkervaring", expanded=False):
+        if st.button("+ Functie"):
             st.session_state['work_experience'].append("")
+            st.rerun()
         
-        # We gebruiken een kopie van de lijst om indexfouten te voorkomen tijdens typen
-        updated_experience = st.session_state['work_experience'].copy()
-        
+        indices_to_remove = []
         for i, job in enumerate(st.session_state['work_experience']):
-            updated_experience[i] = st.text_area(f"Ervaring {i+1}", job, key=f'job_{i}', height=100)
+            c1, c2 = st.columns([5,1])
+            with c1:
+                new_val = st.text_area(f"Rol {i+1}", value=job, key=f"job_{i}", height=100)
+                st.session_state['work_experience'][i] = new_val
+            with c2:
+                st.write("")
+                if st.button("X", key=f"del_{i}"):
+                    indices_to_remove.append(i)
         
-        # Sync terug naar session state
-        st.session_state['work_experience'] = updated_experience
+        if indices_to_remove:
+            for i in sorted(indices_to_remove, reverse=True):
+                del st.session_state['work_experience'][i]
+            st.rerun()
 
-    with st.expander("Styling"):
-        accent_color = st.color_picker("Accentkleur", value="#FF5733")
+# --- KOLOM 2: PREVIEW & STYLING ---
+with col_preview:
+    st.header("🎨 Design & Preview")
+    
+    # STYLING OPTIES
+    with st.container(border=True):
+        st.subheader("Instellingen")
+        c_style1, c_style2 = st.columns(2)
+        with c_style1:
+            template_choice = st.selectbox("Kies Template", ["Modern (Header)", "Minimalist (Clean)", "Creative (Zijbalk)"])
+        with c_style2:
+            accent_color = st.color_picker("Hoofdkleur", "#007BFF") # Blauw als standaard
 
-# --- TAB 2: VOORBEELD ---
-with tabs[1]:
+    # HTML GENERATOR
     if not st.session_state['name']:
-        st.info("Vul eerst je gegevens in (of importeer LinkedIn PDF).")
+        st.warning("Vul links je naam in voor een voorbeeld.")
     else:
-        work_list_items = ''.join([f"<li style='margin-bottom:10px;'>{job}</li>" for job in st.session_state['work_experience']])
+        # Basis Variabelen
+        img_html = ""
+        if st.session_state.get('profile_pic_data'):
+            img_html = f'<img src="data:image/png;base64,{st.session_state["profile_pic_data"]}" class="profile-pic"/>'
+        
+        work_list = "".join([f"<li>{job}</li>" for job in st.session_state['work_experience'] if job.strip()])
 
-        cv_html = f'''
-        <html>
-        <head>
-        <style>
-            body {{font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5;}}
-            .cv-container {{width: 210mm; padding: 40px; background: white; margin: auto; box-shadow: 0 0 15px rgba(0,0,0,0.1);}}
-            .header {{border-bottom: 5px solid {accent_color}; padding-bottom: 20px; margin-bottom: 20px; display: flex; align-items: center;}}
-            .header-text {{flex: 1;}}
-            .profile-pic {{width: 120px; height: 120px; border-radius: 50%; object-fit: cover; margin-right: 20px; border: 3px solid {accent_color};}}
-            h1 {{margin: 0; font-size: 32px; color: {accent_color}; text-transform: uppercase;}}
-            h2 {{margin: 5px 0; font-size: 18px; color: #666; font-weight: normal;}}
-            .contact-info {{font-size: 12px; color: #888; margin-top: 5px;}}
-            .section-title {{font-size: 16px; font-weight: bold; color: {accent_color}; text-transform: uppercase; border-bottom: 1px solid #ddd; margin-top: 25px; margin-bottom: 10px; padding-bottom: 5px;}}
-            ul {{padding-left: 20px;}}
-        </style>
-        </head>
-        <body>
-            <div class="cv-container">
+        # --- CSS LOGICA PER TEMPLATE ---
+        if "Modern" in template_choice:
+            # STYLE 1: MODERN (Gekleurde Header)
+            css = f'''
+                .cv-box {{ font-family: sans-serif; background: white; padding: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+                .header {{ background-color: {accent_color}; color: white; padding: 30px; text-align: center; }}
+                .header h1 {{ margin: 0; font-size: 32px; }}
+                .header h2 {{ margin: 5px 0 0; font-size: 18px; font-weight: normal; opacity: 0.9; }}
+                .contact {{ margin-top: 10px; font-size: 13px; opacity: 0.8; }}
+                .profile-pic {{ width: 120px; height: 120px; border-radius: 50%; border: 4px solid white; margin-bottom: 15px; object-fit: cover; }}
+                .content {{ padding: 30px; }}
+                .section-title {{ color: {accent_color}; border-bottom: 2px solid {accent_color}; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px; font-weight: bold; text-transform: uppercase; }}
+                li {{ margin-bottom: 10px; }}
+            '''
+            body_content = f'''
                 <div class="header">
-                    {'<img src="data:image/png;base64,' + profile_pic_base64 + '" class="profile-pic"/>' if profile_pic_base64 else ''}
+                    {img_html}
+                    <h1>{st.session_state['name']}</h1>
+                    <h2>{st.session_state['job_title']}</h2>
+                    <div class="contact">{st.session_state['email']} | {st.session_state['phone']} | {st.session_state['linkedin']}</div>
+                </div>
+                <div class="content">
+                    <div class="section-title">Profiel</div>
+                    <p>{st.session_state['profile_text']}</p>
+                    <div class="section-title">Werkervaring</div>
+                    <ul>{work_list}</ul>
+                </div>
+            '''
+
+        elif "Minimalist" in template_choice:
+            # STYLE 2: MINIMALIST (Wit, strakke lijnen)
+            css = f'''
+                .cv-box {{ font-family: 'Georgia', serif; background: white; padding: 40px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+                .header {{ border-bottom: 1px solid #ccc; padding-bottom: 20px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }}
+                .header-text h1 {{ margin: 0; font-size: 28px; color: #333; }}
+                .header-text h2 {{ margin: 5px 0; font-size: 16px; color: {accent_color}; }}
+                .contact {{ font-size: 12px; color: #666; }}
+                .profile-pic {{ width: 80px; height: 80px; border-radius: 5px; object-fit: cover; }}
+                .section-title {{ color: #333; font-weight: bold; margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; font-size: 14px; letter-spacing: 1px; }}
+                li {{ margin-bottom: 8px; color: #444; }}
+            '''
+            body_content = f'''
+                <div class="header">
                     <div class="header-text">
                         <h1>{st.session_state['name']}</h1>
                         <h2>{st.session_state['job_title']}</h2>
-                        <div class="contact-info">{st.session_state['email']} | {phone} | {linkedin}</div>
+                        <div class="contact">{st.session_state['email']} • {st.session_state['phone']}</div>
                     </div>
+                    {img_html}
                 </div>
-                
-                <div class="section-title">PROFIEL</div>
+                <div class="section-title" style="color:{accent_color}">Profiel</div>
                 <p>{st.session_state['profile_text']}</p>
-                
-                <div class="section-title">WERKERVARING</div>
-                <ul>
-                    {work_list_items}
-                </ul>
-            </div>
-        </body>
-        </html>
-        '''
-        
-        st.markdown(cv_html, unsafe_allow_html=True)
+                <div class="section-title" style="color:{accent_color}">Werkervaring</div>
+                <ul>{work_list}</ul>
+            '''
 
-        if st.button("Download als PDF"):
-            # Simpele PDF export (tekst basis)
-            flat_text = f"NAAM: {st.session_state['name']}\n\nPROFIEL:\n{st.session_state['profile_text']}\n\nWERKERVARING:\n"
-            for job in st.session_state['work_experience']:
-                flat_text += f"- {job}\n"
-            pdf_data = generate_pdf(flat_text)
-            st.download_button("Download PDF Bestand", data=pdf_data, file_name="cv.pdf", mime="application/pdf")
+        else:
+            # STYLE 3: CREATIVE (Zijbalk Layout met Flexbox)
+            css = f'''
+                .cv-box {{ font-family: sans-serif; background: white; display: flex; box-shadow: 0 4px 10px rgba(0,0,0,0.1); min-height: 800px; }}
+                .sidebar {{ width: 35%; background-color: {accent_color}; color: white; padding: 30px; text-align: center; }}
+                .main {{ width: 65%; padding: 30px; }}
+                .profile-pic {{ width: 100px; height: 100px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.5); margin-bottom: 20px; object-fit: cover; }}
+                .sidebar h1 {{ font-size: 22px; margin-bottom: 5px; }}
+                .sidebar h2 {{ font-size: 14px; font-weight: normal; opacity: 0.9; margin-bottom: 20px; }}
+                .contact-item {{ font-size: 12px; margin-bottom: 10px; opacity: 0.9; word-wrap: break-word; }}
+                .section-title {{ color: {accent_color}; font-size: 18px; font-weight: bold; border-bottom: 2px solid #eee; padding-bottom: 5px; margin-bottom: 15px; margin-top: 0; }}
+                ul {{ padding-left: 20px; }}
+                li {{ margin-bottom: 10px; color: #444; }}
+            '''
+            body_content = f'''
+                <div class="sidebar">
+                    {img_html}
+                    <h1>{st.session_state['name']}</h1>
+                    <h2>{st.session_state['job_title']}</h2>
+                    <br>
+                    <div class="contact-item">📧 {st.session_state['email']}</div>
+                    <div class="contact-item">📱 {st.session_state['phone']}</div>
+                    <div class="contact-item">🔗 {st.session_state['linkedin']}</div>
+                </div>
+                <div class="main">
+                    <div class="section-title">Profiel</div>
+                    <p>{st.session_state['profile_text']}</p>
+                    <br>
+                    <div class="section-title">Werkervaring</div>
+                    <ul>{work_list}</ul>
+                </div>
+            '''
+
+        # Render de HTML
+        final_html = f'<style>{css}</style><div class="cv-box">{body_content}</div>'
+        st.markdown(final_html, unsafe_allow_html=True)
+
+        st.write("")
+        # PDF DOWNLOAD (Platte tekst versie, want FPDF ondersteunt geen geavanceerde CSS/Flexbox)
+        flat_text = f"NAAM: {st.session_state['name']}\n\nPROFIEL:\n{st.session_state['profile_text']}\n\nWERKERVARING:\n"
+        for job in st.session_state['work_experience']:
+            flat_text += f"- {job}\n"
+        pdf_bytes = generate_pdf(flat_text)
+        
+        st.download_button("⬇️ Download PDF", data=pdf_bytes, file_name="CV.pdf", mime="application/pdf", type="primary")
+
+
