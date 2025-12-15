@@ -1,6 +1,4 @@
 streamlit
-openai>=1.0.0
-fpdf
+openai
 pypdf
 xhtml2pdf
-
